@@ -88,9 +88,12 @@ if (!fs.existsSync(path.join(macFfmpegDir, "include"))) {
 	);
 }
 
-const cargo = path.join(os.homedir(), ".cargo", "bin", "cargo");
+// CARGO covers rustup installs outside ~/.cargo, such as Homebrew's keg-only rustup.
+const cargo = process.env.CARGO ?? path.join(os.homedir(), ".cargo", "bin", "cargo");
 if (!fs.existsSync(cargo)) {
-	throw new Error(`cargo not found at ${cargo}. Install Rust (https://rustup.rs) first.`);
+	throw new Error(
+		`cargo not found at ${cargo}. Install Rust (https://rustup.rs) first, or set CARGO to its cargo binary.`,
+	);
 }
 
 // cwd = crates/ so cargo picks up crates/.cargo/config.toml, same as the Windows script.
