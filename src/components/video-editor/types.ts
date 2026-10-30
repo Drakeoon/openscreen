@@ -150,6 +150,9 @@ export function rotation3DPerspective(width: number, height: number): number {
  */
 export type ZoomRegionSource = "auto" | "manual";
 
+/** Curve of a zoom's moves: the critically damped "spring" (default) or a "smooth" ease-in-out. */
+export type ZoomTransitionEasing = "spring" | "smooth";
+
 export interface ZoomRegion {
 	id: string;
 	startMs: number;
@@ -163,6 +166,11 @@ export interface ZoomRegion {
 	source?: ZoomRegionSource;
 	/** When true, cursor is hidden during this zoom region. */
 	hideCursor?: boolean;
+	/** Screen ms the zoom-in lasts, overriding the scale's default. */
+	transitionInMs?: number;
+	/** Screen ms the zoom-out lasts, overriding the scale's default. */
+	transitionOutMs?: number;
+	transitionEasing?: ZoomTransitionEasing;
 }
 
 export function getRotation3D(region: Pick<ZoomRegion, "rotationPreset">): Rotation3D {

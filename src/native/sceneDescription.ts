@@ -123,6 +123,12 @@ export interface SceneZoomRegion {
 	underTrim?: boolean;
 	/** When true, cursor is hidden during this zoom region. */
 	hideCursor?: boolean;
+	/** Screen seconds the zoom-in lasts; omitted for the scale's default. */
+	transitionInSec?: number;
+	/** Screen seconds the zoom-out lasts; omitted for the scale's default. */
+	transitionOutSec?: number;
+	/** Omitted for the default spring. */
+	transitionEasing?: "smooth";
 }
 
 /** One fragment of a shader effect region (`(document.shaderEffectRanges ?? [])`), projected onto its
@@ -1565,6 +1571,13 @@ export function buildSceneDescription(
 			clipIndex: region.clipIndex,
 			...(region.underTrim ? { underTrim: true } : {}),
 			...(region.hideCursor ? { hideCursor: true } : {}),
+			...(typeof region.transitionInMs === "number"
+				? { transitionInSec: region.transitionInMs / 1000 }
+				: {}),
+			...(typeof region.transitionOutMs === "number"
+				? { transitionOutSec: region.transitionOutMs / 1000 }
+				: {}),
+			...(region.transitionEasing === "smooth" ? { transitionEasing: "smooth" as const } : {}),
 		})),
 		annotations: projectedAnnotations
 			.map((region) => {

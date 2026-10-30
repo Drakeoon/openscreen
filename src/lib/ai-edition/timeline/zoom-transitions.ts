@@ -14,6 +14,7 @@
 import {
 	CHAINED_ZOOM_PAN_GAP_MS,
 	CONNECTED_ZOOM_PAN_DURATION_MS,
+	zoomRegionTransitionMs,
 	zoomTransitionMs,
 } from "../../zoomMath/constants";
 import { type SpeedRegion, screenTimeMs, timelineTimeMs } from "./speed";
@@ -29,8 +30,10 @@ export interface ZoomTransitions {
 	inFromMs: number;
 	/** Timeline ms where the zoom-out, which leaves from the zoom's end, is over. */
 	outUntilMs: number;
-	/** Screen ms each move lasts, whatever the speed regions do to the footage. */
+	/** Screen ms the zoom-in lasts, whatever the speed regions do to the footage. */
 	durationMs: number;
+	/** Screen ms the zoom-out lasts: `durationMs` unless the zoom sets its own. */
+	outDurationMs: number;
 }
 
 /** "0.72 s at 1.25×, …": every depth's move duration, for the agent's tool descriptions. */
@@ -40,17 +43,22 @@ export const ZOOM_TRANSITION_LEGEND = Object.values(ZOOM_DEPTH_SCALES)
 	.join(", ");
 
 export function zoomTransitions(
-	zoom: Span & { scale: number },
+	zoom: Span & { scale: number; transitionInMs?: number; transitionOutMs?: number },
 	speedRegions: readonly SpeedRegion[],
 ): ZoomTransitions {
-	const durationMs = zoomTransitionMs(zoom.scale);
+	const durationMs = zoomRegionTransitionMs(zoom.scale, zoom.transitionInMs);
+	const outDurationMs = zoomRegionTransitionMs(zoom.scale, zoom.transitionOutMs);
 	return {
 		inFromMs: Math.max(
 			0,
 			timelineTimeMs(speedRegions, screenTimeMs(speedRegions, zoom.startMs) - durationMs),
 		),
-		outUntilMs: timelineTimeMs(speedRegions, screenTimeMs(speedRegions, zoom.endMs) + durationMs),
+		outUntilMs: timelineTimeMs(
+			speedRegions,
+			screenTimeMs(speedRegions, zoom.endMs) + outDurationMs,
+		),
 		durationMs,
+		outDurationMs,
 	};
 }
 

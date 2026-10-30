@@ -15,11 +15,11 @@ import { clamp01 } from "@/utils/math";
 import {
 	CHAINED_ZOOM_PAN_GAP_MS,
 	CONNECTED_ZOOM_PAN_DURATION_MS,
-	zoomTransitionMs,
+	zoomRegionTransitionMs,
 } from "./constants";
 import { interpolateCursorAt } from "./cursorFollowUtils";
 import { clampFocusToScale } from "./focusUtils";
-import { cubicBezier, easeSpring, scaleLerp } from "./mathUtils";
+import { cubicBezier, easeSmooth, easeSpring, scaleLerp } from "./mathUtils";
 
 /** Timeline ms → screen ms. Transition windows are measured on it, see `screenTimeMs`. */
 type ScreenClock = (timeMs: number) => number;
@@ -70,21 +70,24 @@ export function computeRegionStrength(
 	const start = toScreen(region.startMs);
 	const end = toScreen(region.endMs);
 	const t = toScreen(timeMs);
-	const window = zoomTransitionMs(getZoomScale(region));
+	const scale = getZoomScale(region);
+	const inWindow = zoomRegionTransitionMs(scale, region.transitionInMs);
+	const outWindow = zoomRegionTransitionMs(scale, region.transitionOutMs);
+	const ease = region.transitionEasing === "smooth" ? easeSmooth : easeSpring;
 
-	if (t < start - window || t > end + window) {
+	if (t < start - inWindow || t > end + outWindow) {
 		return 0;
 	}
 
 	if (t < start) {
-		return easeSpring((t - (start - window)) / window);
+		return ease((t - (start - inWindow)) / inWindow);
 	}
 
 	if (t <= end) {
 		return 1;
 	}
 
-	return 1 - easeSpring((t - end) / window);
+	return 1 - ease((t - end) / outWindow);
 }
 
 function getLinearFocus(start: ZoomFocus, end: ZoomFocus, amount: number): ZoomFocus {

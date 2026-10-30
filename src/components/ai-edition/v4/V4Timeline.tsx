@@ -2004,7 +2004,15 @@ export function V4Timeline({
 			const zoom = zooms[i];
 			const pan = pans.find((p) => p.from === i);
 			const panned = pans.some((p) => p.to === i);
-			const moves = zoomTransitions({ ...zoom, scale: effectiveZoomScale(r.member) }, speeds);
+			const moves = zoomTransitions(
+				{
+					...zoom,
+					scale: effectiveZoomScale(r.member),
+					transitionInMs: r.member.transitionInMs,
+					transitionOutMs: r.member.transitionOutMs,
+				},
+				speeds,
+			);
 			const cut = transitionCutsMs(zoom, moves, trims, junctions);
 			const outUntilMs = Math.min(moves.outUntilMs, totalMs);
 			const zoomIn = {

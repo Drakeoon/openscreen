@@ -63,6 +63,11 @@ export function easeSpring(t: number) {
 	return (1 - (1 + x) * Math.exp(-x)) / SPRING_END;
 }
 
+/** Camera ease, cubic-bezier(0.4, 0, 0.2, 1): leaves rest promptly, settles softly on the target. Mirror of `ease_smooth` (Rust). */
+export function easeSmooth(t: number) {
+	return cubicBezier(0.4, 0, 0.2, 1, clamp01(t));
+}
+
 /** Zoom scale between `a` and `b`, interpolated in log space — the way a zoom is perceived. */
 export function scaleLerp(a: number, b: number, t: number) {
 	const from = Math.max(a, 1e-3);

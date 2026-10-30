@@ -10,6 +10,15 @@ export const ZOOM_TRANSITION_PER_LN_MS = 550;
 export function zoomTransitionMs(scale: number): number {
 	return ZOOM_TRANSITION_BASE_MS + ZOOM_TRANSITION_PER_LN_MS * Math.log(Math.max(1, scale));
 }
+
+export const MIN_ZOOM_TRANSITION_MS = 200;
+export const MAX_ZOOM_TRANSITION_MS = 4000;
+
+/** A zoom's own move length when it sets one, the scale's otherwise. Mirror of `region_transition_s` (regions.rs). */
+export function zoomRegionTransitionMs(scale: number, transitionMs?: number): number {
+	if (transitionMs === undefined || !Number.isFinite(transitionMs)) return zoomTransitionMs(scale);
+	return Math.min(MAX_ZOOM_TRANSITION_MS, Math.max(MIN_ZOOM_TRANSITION_MS, transitionMs));
+}
 // Two zooms at most this far apart on screen are chained: no zoom-out and back in, the camera
 // pans from one to the other over CONNECTED_ZOOM_PAN_DURATION_MS of screen time from the first
 // one's end. Mirror of `CHAINED_ZOOM_PAN_GAP_S` / `CONNECTED_ZOOM_PAN_DURATION_S` (regions.rs).
