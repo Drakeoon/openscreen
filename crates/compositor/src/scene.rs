@@ -601,6 +601,15 @@ pub struct SceneZoomRegion {
     /// Masque le curseur pendant cette région de zoom.
     #[serde(default)]
     pub hide_cursor: bool,
+    /// Durée à l'écran de l'ease-in, en secondes ; absente, celle de l'échelle.
+    #[serde(default)]
+    pub transition_in_sec: Option<f32>,
+    /// Durée à l'écran de l'ease-out, en secondes ; absente, celle de l'échelle.
+    #[serde(default)]
+    pub transition_out_sec: Option<f32>,
+    /// "smooth" (ease-in-out) ou absent (le ressort par défaut).
+    #[serde(default)]
+    pub transition_easing: Option<String>,
 }
 
 /// Une zone de vitesse portée par le temps source d'un clip.

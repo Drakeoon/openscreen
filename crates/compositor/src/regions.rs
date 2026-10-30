@@ -409,6 +409,37 @@ fn zoom_transition_s(scale: f32) -> f32 {
     ZOOM_TRANSITION_BASE_S + ZOOM_TRANSITION_PER_LN_S * scale.max(1.0).ln()
 }
 
+const MIN_ZOOM_TRANSITION_S: f32 = 0.2;
+const MAX_ZOOM_TRANSITION_S: f32 = 4.0;
+
+/// Miroir de `zoomRegionTransitionMs` (TS) : la durée propre à la région, sinon celle de l'échelle.
+fn own_or_scale_transition_s(own: Option<f32>, scale: f32) -> f32 {
+    match own {
+        Some(sec) if sec.is_finite() => sec.clamp(MIN_ZOOM_TRANSITION_S, MAX_ZOOM_TRANSITION_S),
+        _ => zoom_transition_s(scale),
+    }
+}
+
+fn region_in_s(region: &SceneZoomRegion) -> f32 {
+    own_or_scale_transition_s(region.transition_in_sec, region.scale)
+}
+
+fn region_out_s(region: &SceneZoomRegion) -> f32 {
+    own_or_scale_transition_s(region.transition_out_sec, region.scale)
+}
+
+/// Ease de caméra cubic-bezier(0.4, 0, 0.2, 1), miroir de `easeSmooth` (TS) : part sans traîner, se pose en douceur.
+fn ease_smooth(t: f32) -> f32 {
+    cubic_bezier(0.4, 0.0, 0.2, 1.0, clamp01(t))
+}
+
+fn region_ease(region: &SceneZoomRegion, t: f32) -> f32 {
+    match region.transition_easing.as_deref() {
+        Some("smooth") => ease_smooth(t),
+        _ => ease_spring(t),
+    }
+}
+
 /// Port de `computeRegionStrength` (TS, `zoomRegionUtils.ts`) : 0 hors fenêtre, ease-in qui
 /// arrive pile à `startSec` (le zoom est en place quand la région commence), plein régime pendant
 /// la région, ease-out qui part de `endSec`. Les deux transitions durent `zoom_transition_s`.
@@ -427,17 +458,17 @@ fn zoom_region_strength(region: &SceneZoomRegion, t: f32, clock: &ScreenClock) -
         return if t >= start && t < end { 1.0 } else { 0.0 };
     }
     let (start, end, t) = (clock.at(start), clock.at(end), clock.at(t));
-    let window = zoom_transition_s(region.scale);
-    if t < start - window || t > end + window {
+    let (in_window, out_window) = (region_in_s(region), region_out_s(region));
+    if t < start - in_window || t > end + out_window {
         return 0.0;
     }
     if t < start {
-        return ease_spring((t - (start - window)) / window);
+        return region_ease(region, (t - (start - in_window)) / in_window);
     }
     if t <= end {
         return 1.0;
     }
-    1.0 - ease_spring((t - end) / window)
+    1.0 - region_ease(region, (t - end) / out_window)
 }
 
 /// Facteur d'opacité du curseur (0.0..1.0) induit par les régions de zoom ayant `hide_cursor = true`.
@@ -779,12 +810,11 @@ fn resolve_focus(
             // petit geste, donne un pan nerveux. Le filtre part du début de l'ease-in de la région,
             // un instant fixe : preview et export rejouent la même chose. L'ease-in se mesure à
             // l'écran (`zoom_region_strength`), son début se ramène donc à la source par l'horloge.
-            let window = zoom_transition_s(region.scale);
-            let t0 = clock.source_at(clock.at(region.start_sec as f32) - window);
+            let t0 = clock.source_at(clock.at(region.start_sec as f32) - region_in_s(region));
             let t_end = if region.under_trim {
                 region.end_sec as f32
             } else {
-                clock.source_at(clock.at(region.end_sec as f32) + window)
+                clock.source_at(clock.at(region.end_sec as f32) + region_out_s(region))
             };
             if let Some((cx, cy)) = track.follow_in_view(t0, t, t_end, region.scale) {
                 return [cx, cy];
@@ -847,8 +877,8 @@ pub fn zoom_continues_since(
     if regions.is_empty() || t < since { return false; }
     let (since, t) = (clock.at(since), clock.at(t));
     let mut spans: Vec<(f32, f32)> = regions.iter().map(|r| {
-        let window = if r.under_trim { 0.0 } else { zoom_transition_s(r.scale) };
-        (clock.at(r.start_sec as f32) - window, clock.at(r.end_sec as f32) + window)
+        let (lead, tail) = if r.under_trim { (0.0, 0.0) } else { (region_in_s(r), region_out_s(r)) };
+        (clock.at(r.start_sec as f32) - lead, clock.at(r.end_sec as f32) + tail)
     }).collect();
     spans.extend(connected_pairs(regions, clock).into_iter().map(|(_, ni, start, end)|
         (start, end.max(clock.at(regions[ni].start_sec as f32)))));
@@ -1731,6 +1761,9 @@ mod zoom_focus_tests {
             rotation: None,
             under_trim: false,
             hide_cursor: false,
+            transition_in_sec: None,
+            transition_out_sec: None,
+            transition_easing: None,
         }
     }
 
@@ -2744,6 +2777,9 @@ mod tilt_tests {
             rotation: rotation.map(Into::into),
             under_trim: false,
             hide_cursor: false,
+            transition_in_sec: None,
+            transition_out_sec: None,
+            transition_easing: None,
         };
         // `orbit` n'incline pas l'écran (caméra réelle, `camera.rs`) : chaînée à un angle
         // fixe, la transition passe par l'écran droit, que ce balayage couvre aussi.
@@ -3166,6 +3202,9 @@ mod tilt_tests {
             rotation: rotation.map(Into::into),
             under_trim: false,
             hide_cursor: false,
+            transition_in_sec: None,
+            transition_out_sec: None,
+            transition_easing: None,
         };
         assert_eq!(zoom_state_at(&[region(Some("left"))], 5.0, None).tilt, 1.0);
         assert_eq!(zoom_state_at(&[region(None)], 5.0, None).tilt, 0.0);
@@ -3545,6 +3584,9 @@ mod orbit_camera_tests {
             rotation: Some(rotation.into()),
             under_trim: false,
             hide_cursor: false,
+            transition_in_sec: None,
+            transition_out_sec: None,
+            transition_easing: None,
         }
     }
 
