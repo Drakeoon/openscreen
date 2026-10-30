@@ -106,6 +106,7 @@ import {
 } from "../../src/lib/ai-edition/timeline/zoom-transitions";
 import { LAYOUT_PRESETS } from "../../src/lib/layoutTypes";
 import { SETTING_BOUNDS } from "../../src/lib/projectDefaults";
+import { MAX_ZOOM_TRANSITION_MS, MIN_ZOOM_TRANSITION_MS } from "../../src/lib/zoomMath/constants";
 import type { SegmentationSupport } from "../../src/native/contracts";
 import { annotationFootageRect, zoomScaleLimit } from "../../src/native/sceneDescription";
 import { ASPECT_RATIO_PRESETS } from "../../src/utils/aspectRatioUtils";
@@ -801,6 +802,22 @@ const customScaleSchema = z
 		`A free zoom level, as a factor (${MIN_ZOOM_SCALE}–${MAX_ZOOM_SCALE}, e.g. 2 for 2×), in place of depth. Refused past the clip's own limit, the deepest its recording takes before it blurs; the refusal names it.`,
 	);
 
+/** A zoom's own move length, in place of the scale's default (`zoomRegionTransitionMs`). */
+const transitionSecSchema = (move: "zoom-in" | "zoom-out") =>
+	z
+		.number()
+		.min(MIN_ZOOM_TRANSITION_MS / 1000)
+		.max(MAX_ZOOM_TRANSITION_MS / 1000)
+		.describe(
+			`Screen seconds this zoom's ${move} lasts (${MIN_ZOOM_TRANSITION_MS / 1000}–${MAX_ZOOM_TRANSITION_MS / 1000}), in place of the scale's default. A longer move, with transitionEasing "smooth", is a camera the viewer can follow.`,
+		);
+
+const transitionEasingSchema = z
+	.enum(["spring", "smooth"])
+	.describe(
+		'The curve of both moves: "spring" (the default) does most of the move at once and settles, "smooth" leaves rest promptly and settles softly on the target (cubic-bezier(0.4, 0, 0.2, 1)), the camera ease for product demos.',
+	);
+
 export const addZoomArgs = z.object({
 	startSec: secondsSchema,
 	endSec: secondsSchema,
@@ -815,6 +832,9 @@ export const addZoomArgs = z.object({
 	focusMode: focusModeSchema.default("manual"),
 	hideCursor: z.boolean().default(false),
 	customScale: customScaleSchema.optional(),
+	transitionInSec: transitionSecSchema("zoom-in").optional(),
+	transitionOutSec: transitionSecSchema("zoom-out").optional(),
+	transitionEasing: transitionEasingSchema.optional(),
 });
 
 /** A zoom with its 3D camera set: `none` drops the key, as a flat zoom never carries it. */
@@ -876,6 +896,9 @@ function zoomBehaviourReport(
 			: {}),
 		...(zoom.hideCursor ? { hideCursor: true } : {}),
 		...(zoom.customScale != null ? { customScale: zoom.customScale } : {}),
+		...(zoom.transitionInMs != null ? { transitionInSec: zoom.transitionInMs / 1000 } : {}),
+		...(zoom.transitionOutMs != null ? { transitionOutSec: zoom.transitionOutMs / 1000 } : {}),
+		...(zoom.transitionEasing === "smooth" ? { transitionEasing: "smooth" } : {}),
 	};
 }
 
@@ -895,6 +918,9 @@ export const setZoomArgs = z.object({
 	focusMode: focusModeSchema.optional(),
 	hideCursor: z.boolean().optional(),
 	customScale: customScaleSchema.optional(),
+	transitionInSec: transitionSecSchema("zoom-in").optional(),
+	transitionOutSec: transitionSecSchema("zoom-out").optional(),
+	transitionEasing: transitionEasingSchema.optional(),
 });
 
 // The bound every speed reader applies (`readSpeedRegions`): refused here, so the agent hears
@@ -1386,7 +1412,7 @@ export function documentSnapshotForModel(
 			"When a zoom carries customScale it wins over depth and depthIsOverridden is true — " +
 			"a setZoom that only changes depth on such a zoom clears customScale so the depth takes effect. " +
 			"startSec–endSec is where the zoom HOLDS: it animates in over zoomInFromSec–startSec and out over " +
-			"endSec–zoomOutUntilSec (transitionSec of screen time each; a speed region scales that on the " +
+			"endSec–zoomOutUntilSec (transitionSec of screen time each, transitionOutSec for the zoom-out when it differs; a speed region scales that on the " +
 			"timeline, longer above 1x and shorter below, so read the bounds rather than adding transitionSec). cutByTrim names the move a trim cuts into (in, out or both), cutByJunction the move a clip junction cuts (the clip ends before the move does): the export jumps at that cut. " +
 			"Two zooms at most 1.5 s apart on screen, with no trim or clip junction between them, are CHAINED: " +
 			"no zoom-out and back in, the camera pans from the first (panToZoomId, panUntilSec: 1 s of screen " +
@@ -1481,6 +1507,9 @@ export function documentSnapshotForModel(
 					? { panToZoomId: panTo.zoomId, panUntilSec: roundSec(panTo.untilMs) }
 					: { zoomOutUntilSec: roundSec(transitions.outUntilMs) }),
 				transitionSec: roundSec(transitions.durationMs),
+				...(transitions.outDurationMs !== transitions.durationMs
+					? { transitionOutSec: roundSec(transitions.outDurationMs) }
+					: {}),
 				...(cutSides(cut, false) ? { cutByTrim: cutSides(cut, false) } : {}),
 				...(cutSides(cut, true) ? { cutByJunction: cutSides(cut, true) } : {}),
 				depth: z.depth,
@@ -1493,6 +1522,7 @@ export function documentSnapshotForModel(
 				focus: z.focus,
 				focusMode: autoFocusAll ? "auto" : (z.focusMode ?? "manual"),
 				...(z.hideCursor ? { hideCursor: true } : {}),
+				...(z.transitionEasing === "smooth" ? { transitionEasing: "smooth" } : {}),
 				source: z.source ?? "manual",
 			}),
 		),
@@ -2945,6 +2975,15 @@ export function executeAgentTool(
 					focus: parsed.data.focus,
 					focusMode: parsed.data.focusMode,
 					...(parsed.data.hideCursor ? { hideCursor: true } : {}),
+					...(parsed.data.transitionInSec !== undefined
+						? { transitionInMs: toMs(parsed.data.transitionInSec) }
+						: {}),
+					...(parsed.data.transitionOutSec !== undefined
+						? { transitionOutMs: toMs(parsed.data.transitionOutSec) }
+						: {}),
+					...(parsed.data.transitionEasing === "smooth"
+						? { transitionEasing: "smooth" as const }
+						: {}),
 					source: "manual" as const,
 				} as AxcutDocument["zoomRanges"][number],
 				parsed.data.rotationPreset,
@@ -3015,12 +3054,13 @@ export function executeAgentTool(
 				parsed.data.depth !== undefined &&
 				document.zoomRanges.some((z) => zoomPill.has(z.id) && z.customScale != null);
 			const level = zoomLevelArg(parsed.data.customScale);
-			const { hideCursor, focusMode } = parsed.data;
+			const { hideCursor, focusMode, transitionInSec, transitionOutSec, transitionEasing } =
+				parsed.data;
 			const rebuiltZooms = replacePillSpan(
 				// payload edits first, applied to every region under the pill…
 				document.zoomRanges.map((z) => {
 					if (!zoomPill.has(z.id)) return z;
-					const { customScale, hideCursor: wasHidden, ...rest } = z;
+					const { customScale, hideCursor: wasHidden, transitionEasing: wasEasing, ...rest } = z;
 					// A level the table has is written as its depth, which drops the custom scale.
 					const keepsScale = !clearsCustomScale && !("depth" in level);
 					const edited = {
@@ -3028,6 +3068,11 @@ export function executeAgentTool(
 						...(keepsScale && customScale != null ? { customScale } : {}),
 						// As the inspector writes it: shown is the absence of the flag.
 						...((hideCursor ?? wasHidden) ? { hideCursor: true } : {}),
+						...(transitionInSec !== undefined ? { transitionInMs: toMs(transitionInSec) } : {}),
+						...(transitionOutSec !== undefined ? { transitionOutMs: toMs(transitionOutSec) } : {}),
+						...((transitionEasing ?? wasEasing) === "smooth"
+							? { transitionEasing: "smooth" as const }
+							: {}),
 						...(parsed.data.depth !== undefined
 							? { depth: parsed.data.depth as 1 | 2 | 3 | 4 | 5 | 6 }
 							: {}),
